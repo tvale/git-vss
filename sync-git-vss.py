@@ -221,6 +221,9 @@ def sync_dirs(vss_dirs):
         subprocess.call(cmd_vss_add.format(d), stdout=log, stderr=log, shell=True)
     #print (dirs_to_rem)
     for d in dirs_to_rem:
+        # we apply recursively because deleting a directory with files prompts
+        # user input from vss regarding checkout operations from different
+        # sources
         sync_git_vss(d, d)
         subprocess.call(cmd_vss_undockout.format(d), stdout=log, stderr=log, shell=True)
         subprocess.call(cmd_vss_del.format(d), stdout=log, stderr=log, shell=True)
