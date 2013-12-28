@@ -41,16 +41,23 @@
 #       6.4. add to vss each d in Dgit and not in Dvss;                       #
 #       6.5. apply steps 4-6 to each d in Dgit and Dvss;                      #
 ###############################################################################
+
+###############################################################################
+# imports                                                                     #
+###############################################################################
 import sys
 import os
 import tempfile
 import shutil
 import subprocess
 import time
-
-# log filename
+###############################################################################
+# log filename                                                                #
+###############################################################################
 log_fn = "sync_git_vss.log"
-# cli arguments
+###############################################################################
+# cli arguments                                                               #
+###############################################################################
 use_git_tag = False
 git_repo    = sys.argv[1] 
 git_user    = sys.argv[2]
@@ -62,19 +69,29 @@ vss_passwd  = sys.argv[7]
 if len(sys.argv) == 9:
     use_git_tag = True
     git_tag     = sys.argv[8]
-# vss-specific environment variables
+###############################################################################
+# vss-specific environment variables                                          #
+###############################################################################
 os.environ["SSDIR"]  = os.environ["SSPATH"]
 os.environ["SSUSER"] = vss_user
 os.environ["SSPWD"]  = vss_passwd
-# git snapshot
+###############################################################################
+# git snapshot                                                                #
+###############################################################################
 git_snap_files   = dict()
 git_snap_subdirs = dict()
-# windows-specific shell commands
+###############################################################################
+# windows-specific shell commands                                             #
+###############################################################################
 cmd_win_dir_files = "dir /A:-D /B"
 cmd_win_dir_dirs  = "dir /A:D /B"
-# git commands
+###############################################################################
+# git command templates                                                       #
+###############################################################################
 cmd_git_clone = "git clone {} --branch {} --single-branch {}"
-# vss commands
+###############################################################################
+# vss command templates                                                       #
+###############################################################################
 cmd_vss_cp        = "ss cp {}"
 cmd_vss_dir       = "ss dir -F"
 cmd_vss_get       = "ss get {}"
@@ -83,21 +100,21 @@ cmd_vss_del       = "ss delete {}"
 cmd_vss_ckin      = "ss checkin {} -R -C-"
 cmd_vss_ckout     = "ss checkout {} -R -G-"
 cmd_vss_undockout = "ss undocheckout {} -G-"
-
+###############################################################################
+# helper functions---git snapshot                                             #
+###############################################################################
 def parse_files_cwd(files, fn):
     with open(fn, "rU") as f:
         for line in f:
             stripped = line.strip()
             if stripped:
                 files.append(stripped)
-
 def parse_subdirs_cwd(subdirs, fn):
     with open(fn, "rU") as f:
         for line in f:
             stripped = line.strip()
             if stripped and stripped != ".git":
                 subdirs.append(stripped)
-
 def parse_cwd(sh_cmd, parse_fun):
     result = []
     # redirect list output to a temporary file, parse names into list and
@@ -111,7 +128,6 @@ def parse_cwd(sh_cmd, parse_fun):
         os.close(fd)
     os.remove(fn)
     return result
-
 def create_git_snap(dir):
     os.chdir(dir)
     #print (os.getcwd())
@@ -124,16 +140,16 @@ def create_git_snap(dir):
     for d in subdirs:
         create_git_snap(d)
     os.chdir("..")
-
+###############################################################################
+# helper functions---vss snapshot                                             #
+###############################################################################
 def parse_vss_cwd_is_file(str):
     return str and \
             str.startswith("$", 0, 1) == False and \
             str.endswith("item(s)") == False and \
             str.startswith("No items found under") == False
-
 def parse_vss_cwd_is_dir(str):
     return str.startswith("$", 0, 1) == True
-
 def parse_vss_cwd(files, subdirs, fn):
     # output to parse is as follows:
     # a. empty directory:
@@ -145,11 +161,11 @@ def parse_vss_cwd(files, subdirs, fn):
     #
     #   <n> items(s)
     with open(fn, "rU") as f:
-        i = 0
+        first_line = True
         for line in f:
             # skip first line
-            if i == 0:
-                i += 1
+            if first_line:
+                first_line = False
                 continue
             stripped = line.strip()
             if parse_vss_cwd_is_file(stripped):
@@ -159,8 +175,6 @@ def parse_vss_cwd(files, subdirs, fn):
                     # get dirname (after $)
                     before, sep, after = stripped.partition("$")
                     subdirs.append(after)
-            i += 1
-
 def create_vss_snap_cwd():
     files   = []
     subdirs = []
@@ -172,7 +186,9 @@ def create_vss_snap_cwd():
     parse_vss_cwd(files, subdirs, fn)
     os.remove(fn)
     return files, subdirs
-
+###############################################################################
+# helper functions                                                            #
+###############################################################################
 def sync_files(vss_files):
     # get list of files to add/remove
     try:
@@ -190,7 +206,6 @@ def sync_files(vss_files):
         subprocess.call(cmd_vss_get.format(f), stdout=log, stderr=log, shell=True)
         subprocess.call(cmd_vss_undockout.format(f), stdout=log, stderr=log, shell=True)
         subprocess.call(cmd_vss_del.format(f), stdout=log, stderr=log, shell=True)
-
 def sync_dirs(vss_dirs):
     # get list of directories to add/remove
     try:
@@ -210,7 +225,6 @@ def sync_dirs(vss_dirs):
         subprocess.call(cmd_vss_undockout.format(d), stdout=log, stderr=log, shell=True)
         subprocess.call(cmd_vss_del.format(d), stdout=log, stderr=log, shell=True)
     return dirs_to_rec
-
 def sync_git_vss(vss_repo, dir):
     # set vss repository and change cwd to 'dir'
     subprocess.call(cmd_vss_cp.format(vss_repo), stdout=log, stderr=log, shell=True)
@@ -224,7 +238,9 @@ def sync_git_vss(vss_repo, dir):
         sync_git_vss(d, d)
     subprocess.call(cmd_vss_cp.format(".."), stdout=log, stderr=log, shell=True)
     os.chdir("..")
-
+###############################################################################
+# main                                                                        #
+###############################################################################
 log = open(log_fn, "a+")
 log.write(time.strftime("%c"))
 log.write("\n")
