@@ -97,8 +97,8 @@ cmd_git_clone = "git clone {} --branch {} --single-branch {}"
 cmd_vss_cp        = "ss cp {}"
 cmd_vss_dir       = "ss dir -F"
 cmd_vss_get       = "ss get {}"
-cmd_vss_add       = "ss add {} -R -C-"
-cmd_vss_del       = "ss delete {}"
+cmd_vss_add       = "ss add {} -R -C- -I-"
+cmd_vss_del       = "ss delete {} -I-Y"
 cmd_vss_ckin      = "ss checkin {} -R -C-"
 cmd_vss_ckout     = "ss checkout {} -R -G-"
 cmd_vss_undockout = "ss undocheckout {} -R -G-"
@@ -207,11 +207,13 @@ def sync_files(vss_files):
     files_to_rem = list(set(vss_files) - set(git_files))
     #print (files_to_add)
     for f in files_to_add:
-        subprocess.call(cmd_vss_add.format(f), stdout=log, stderr=log, shell=True)
+        code = subprocess.call(cmd_vss_add.format(f), stdout=log, stderr=log, shell=True)
+        if code == err_vss:
+            # what if 'f' is checked out?
+            subprocess.call(cmd_vss_ckout.format(f), stdout=log, stderr=log, shell=True)
+            subprocess.call(cmd_vss_ckin.format(f), stdout=log, stderr=log, shell=True)
     #print (files_to_rem)
     for f in files_to_rem:
-        subprocess.call(cmd_vss_get.format(f), stdout=log, stderr=log, shell=True)
-        subprocess.call(cmd_vss_undockout.format(f), stdout=log, stderr=log, shell=True)
         subprocess.call(cmd_vss_del.format(f), stdout=log, stderr=log, shell=True)
 def sync_dirs(vss_dirs):
     # get list of directories to add/remove
