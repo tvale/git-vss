@@ -7,7 +7,9 @@ synchronise a vss database with a git branch.
 * Both {ss,git}.exe are in **PATH**;
 * **%SSPATH%** exists and contains the VSS database location;
 * Commands used to collect git snapshot produce a directory listing with one
-file/sub-directory per line.
+file/sub-directory per line;
+* The VSS user of this script does not have the VSS project checked out
+externally (used in `error_ckout`.)
 
 ###### parameters
 1. git repository;

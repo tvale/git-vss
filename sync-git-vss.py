@@ -5,7 +5,9 @@
 #   both {ss,git}.exe are in PATH;                                            #
 #   %SSPATH% exists and contains the VSS database location;                   #
 #   commands used to collect git snapshot produce a directory listing with    #
-#   one file/sub-directory per line.
+#   one file/sub-directory per line;                                          #
+#   the VSS user of this script does not have the VSS project checked out     #
+#   externally (used in error_ckout.)                                         #
 #                                                                             #
 # parameters:                                                                 #
 #    #1  git repository;                                                      #
@@ -99,7 +101,12 @@ cmd_vss_add       = "ss add {} -R -C-"
 cmd_vss_del       = "ss delete {}"
 cmd_vss_ckin      = "ss checkin {} -R -C-"
 cmd_vss_ckout     = "ss checkout {} -R -G-"
-cmd_vss_undockout = "ss undocheckout {} -G-"
+cmd_vss_undockout = "ss undocheckout {} -R -G-"
+###############################################################################
+# vss error return codes                                                      #
+###############################################################################
+err_vss = 100
+ok_vss  = 0
 ###############################################################################
 # helper functions---git snapshot                                             #
 ###############################################################################
@@ -242,6 +249,17 @@ def sync_git_vss(vss_repo, dir):
     subprocess.call(cmd_vss_cp.format(".."), stdout=log, stderr=log, shell=True)
     os.chdir("..")
 ###############################################################################
+# helper functions---rollback on error                                        #
+###############################################################################
+def error_ckout():
+    print ("Error while checking out from VSS")
+    # answer yes to undo the check out of files that have been modified/removed
+    # in git
+    cmd = cmd_vss_undockout + " " + "-I-Y"
+    subprocess.call(cmd.format(vss_repo), stdout=log, stderr=log, shell=True)
+def print_log_info():
+    print ("View {} for details".format(log_fn))
+###############################################################################
 # main                                                                        #
 ###############################################################################
 log = open(log_fn, "a+")
@@ -254,12 +272,16 @@ print ("Creating git snapshot")
 create_git_snap(base_dir)
 os.chdir(base_dir)
 print ("Checking out from VSS")
-subprocess.call(cmd_vss_ckout.format(vss_repo), stdout=log, stderr=log, shell=True)
+code = subprocess.call(cmd_vss_ckout.format(vss_repo), stdout=log, stderr=log, shell=True)
+if code == err_vss:
+    error_ckout()
+    print_log_info()
+    sys.exit()
 print ("Checking in to VSS")
 subprocess.call(cmd_vss_ckin.format(vss_repo), stdout=log, stderr=log, shell=True)
 print ("Synchronising added/removed files in git with VSS")
 sync_git_vss(vss_repo, base_dir)
-print ("All done, view {} for details".format(log_fn))
+print_log_info()
 # remove temporary base directory
 #shutil.rmtree(base_dir, True)
 log.write("\n")
