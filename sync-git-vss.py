@@ -113,10 +113,13 @@ git_snap_subdirs = dict()
 ###############################################################################
 cmd_win_dir_files = "dir /A:-D /B"
 cmd_win_dir_dirs  = "dir /A:D /B"
+cmd_win_del_dir   = "rm -rf {}"
 ###############################################################################
 # git command templates                                                       #
 ###############################################################################
 cmd_git_clone = "git clone {} --branch {} --single-branch {}"
+cmd_git_tag   = "git tag {}"
+cmd_git_push  = "git push --tags origin"
 ###############################################################################
 # vss command templates                                                       #
 ###############################################################################
@@ -310,5 +313,15 @@ print ("Checking in to VSS")
 subprocess.call(cmd_vss_ckin.format(vss_proj), shell=True)
 print ("Synchronising added/removed files in git with VSS")
 sync_git_vss(vss_proj, base_dir)
+# create git tag
+if use_git_tag == True:
+    os.chdir(base_dir)
+    print ("Creating git tag {}".format(git_tag))
+    subprocess.call(cmd_git_tag.format(git_tag), shell=True)
+    print ("Pushing git tag")
+    subprocess.call(cmd_git_push, shell=True)
+    os.chdir("..")
 # remove temporary base directory
-#shutil.rmtree(base_dir, True)
+print ("Removing temporary directory {}".format(base_dir))
+subprocess.call(cmd_win_del_dir.format(base_dir), shell=True)
+print ("Done!")
