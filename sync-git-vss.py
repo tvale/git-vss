@@ -1,45 +1,41 @@
 ###############################################################################
-# synchronise a vss project with a git branch                                 #
+# A Python script to synchronise a VSS project with a git branch.             #
+# Makes use of Windows-specific commands.                                     #
 ###############################################################################
-# assumptions:                                                                #
-#   both {ss,git}.exe are in PATH;                                            #
-#   %SSPATH% contains the VSS database location---where srcsafe.ini is;       #
-#   commands used to collect git snapshot produce a directory listing with    #
-#   one file/sub-directory per line;                                          #
-#   the VSS user of this script does not have the VSS project checked out     #
-#   externally (used in error_ckout.)                                         #
+# Assumptions:                                                                #
+#   * Both {ss,git}.exe are in %PATH%;                                        #
+#   * %SSPATH% contains the VSS database location---where srcsafe.ini is;     #
+#   * Commands used to collect git snapshot produce a directory listing with  #
+#     one file/sub-directory per line;                                        #
+#   * The VSS user of this script does not have the VSS project checked out   #
+#     externally (used in error_ckout).                                       #
 #                                                                             #
-# parameters:                                                                 #
-#    #1  git url;                                                             #
-#    #2  git branch;                                                          #
-#    #3  vss project;                                                         #
-#    #4  vss user;                                                            #
-#    #5  vss user password;                                                   #
-#   [#6] optional git tag.                                                    #
+# Parameters:                                                                 #
+#   #1  git url w/ user and pass, e.g., https://user:pwd@bitbucket.org/...git;#
+#   #2  git branch;                                                           #
+#   #3  VSS project;                                                          #
+#   #4  VSS user;                                                             #
+#   #5  VSS user password;                                                    #
+#  [#6  Optional git tag.]                                                    #
 #                                                                             #
-# to do:                                                                      #
-#   git auth? apparently no way to do so programmatically--use ssh;           #
-#   git tag at the end;                                                       #
-#   failure handling?                                                         #
-#                                                                             #
-# high-level description:                                                     #
-#   1. clone the git branch to a temporary directory;                         #
-#   2. take a snapshot Sgit of the directory structure;                       #
-#   3. checkin modified files to vss:                                         #
-#       3.1. checkout the vss project without overwritting local files;       #
-#       3.2. checkin the vss project;                                         #
-#   4. take a snapshot Svss of the directory structure;                       #
-#   5. add/delete in vss files added/removed in git:                          #
-#       5.1. from Sgit obtain the set of files Fgit;                          #
-#       5.2. from Svss obtain the set of files Fvss;                          #
-#       5.3. delete from vss each f in Fvss and not in Fgit;                  #
-#       5.4. add to vss each f in Fgit and not in Fvss;                       #
-#   6. add/delete in vss sub-directories added/removed in git:                #
-#       6.1. from Sgit obtain the set of sub-directories Dgit;                #
-#       6.2. from Svss obtain the set of sub-directories Dvss;                #
-#       6.3. delete from vss each d in Dvss and not in Dgit;                  #
-#       6.4. add to vss each d in Dgit and not in Dvss;                       #
-#       6.5. apply steps 4-6 to each d in Dgit and Dvss;                      #
+# High-level description:                                                     #
+#   1. Clone the git branch to a temporary directory;                         #
+#   2. Take a snapshot Sgit of the directory structure;                       #
+#   3. Checkin modified files to VSS:                                         #
+#       3.1. Checkout the VSS project without overwritting local files;       #
+#       3.2. Checkin the VSS project;                                         #
+#   4. Take a snapshot Svss of the directory structure;                       #
+#   5. Add/delete in VSS files added/removed in git:                          #
+#       5.1. From Sgit obtain the set of files Fgit;                          #
+#       5.2. From Svss obtain the set of files Fvss;                          #
+#       5.3. Delete from VSS each f in Fvss and not in Fgit;                  #
+#       5.4. Add to VSS each f in Fgit and not in Fvss;                       #
+#   6. Add/delete in vss sub-directories added/removed in git:                #
+#       6.1. From Sgit obtain the set of sub-directories Dgit;                #
+#       6.2. From Svss obtain the set of sub-directories Dvss;                #
+#       6.3. Delete from VSS each d in Dvss and not in Dgit;                  #
+#       6.4. Add to VSS each d in Dgit and not in Dvss;                       #
+#       6.5. Apply steps 4-6 to each d in Dgit and Dvss;                      #
 ###############################################################################
 
 ###############################################################################
@@ -109,7 +105,7 @@ os.environ["SSPWD"]  = vss_passwd
 git_snap_files   = dict()
 git_snap_subdirs = dict()
 ###############################################################################
-# windows-specific shell commands                                             #
+# windows-specific shell command templates                                    # 
 ###############################################################################
 cmd_win_dir_files = "dir /A:-D /B"
 cmd_win_dir_dirs  = "dir /A:D /B"
@@ -167,7 +163,6 @@ def parse_cwd(sh_cmd, parse_fun):
     return result
 def create_git_snap(dir):
     os.chdir(dir)
-    #print (os.getcwd())
     files   = parse_cwd(cmd_win_dir_files, parse_files_cwd)
     subdirs = parse_cwd(cmd_win_dir_dirs, parse_subdirs_cwd)
     # populate snapshot
@@ -235,14 +230,12 @@ def sync_files(vss_files):
         git_files = []
     files_to_add = list(set(git_files) - set(vss_files))
     files_to_rem = list(set(vss_files) - set(git_files))
-    #print (files_to_add)
     for f in files_to_add:
         code = subprocess.call(cmd_vss_add.format(f), shell=True)
         if code == err_vss:
             # what if 'f' is checked out?
             subprocess.call(cmd_vss_ckout.format(f), shell=True)
             subprocess.call(cmd_vss_ckin.format(f), shell=True)
-    #print (files_to_rem)
     for f in files_to_rem:
         # rename to f_timestamp
         f_ts = f + "_" + str(time.time())
@@ -258,10 +251,8 @@ def sync_dirs(vss_dirs):
     dirs_to_add = list(set(git_dirs) - set(vss_dirs))
     dirs_to_rem = list(set(vss_dirs) - set(git_dirs))
     dirs_to_rec = list(set(vss_dirs) & set(git_dirs))
-    #print (dirs_to_add)
     for d in dirs_to_add:
         subprocess.call(cmd_vss_add.format(d), shell=True)
-    #print (dirs_to_rem)
     for d in dirs_to_rem:
         # we apply recursively because deleting a directory with files prompts
         # user input from vss regarding checkout operations from different
@@ -277,11 +268,9 @@ def sync_git_vss(vss_proj, dir):
     # set vss project and change cwd to 'dir'
     subprocess.call(cmd_vss_cp.format(vss_proj), shell=True)
     os.chdir(dir)
-    #print (os.getcwd())
     vss_files, vss_dirs = create_vss_snap_cwd()
     sync_files(vss_files)
     git_vss_dirs = sync_dirs(vss_dirs)
-    #print (dirs_to_rec)
     for d in git_vss_dirs:
         sync_git_vss(d, d)
     subprocess.call(cmd_vss_cp.format(".."), shell=True)
