@@ -287,11 +287,11 @@ def sync_git_vss(vss_proj, dir):
 # helper functions---rollback on error                                        #
 ###############################################################################
 def error_ckout():
-    print ("Error while checking out from VSS")
+    print ("Error while checking out from VSS (check above for the problem)")
     # answer yes to undo the check out of files that have been modified/removed
     # in git
     cmd = cmd_vss_undockout + " " + "-I-Y"
-    subprocess.call(cmd.format(vss_proj), shell=True)
+    subprocess.call(cmd.format(vss_proj), stdout=subprocess.DEVNULL, shell=True)
 ###############################################################################
 # main                                                                        #
 ###############################################################################
@@ -302,7 +302,7 @@ print ("Creating git snapshot")
 create_git_snap(base_dir)
 os.chdir(base_dir)
 print ("Checking out from VSS")
-code = subprocess.call(cmd_vss_ckout.format(vss_proj), shell=True)
+code = subprocess.call(cmd_vss_ckout.format(vss_proj), stdout=subprocess.DEVNULL, shell=True)
 if code == err_vss:
     error_ckout()
     sys.exit()
