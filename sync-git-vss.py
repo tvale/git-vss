@@ -1,23 +1,21 @@
 ###############################################################################
-# synchronise a vss database with a git branch                                #
+# synchronise a vss project with a git branch                                 #
 ###############################################################################
 # assumptions:                                                                #
 #   both {ss,git}.exe are in PATH;                                            #
-#   %SSPATH% exists and contains the VSS database location;                   #
+#   %SSPATH% contains the VSS database location---where srcsafe.ini is;       #
 #   commands used to collect git snapshot produce a directory listing with    #
 #   one file/sub-directory per line;                                          #
 #   the VSS user of this script does not have the VSS project checked out     #
 #   externally (used in error_ckout.)                                         #
 #                                                                             #
 # parameters:                                                                 #
-#    #1  git repository;                                                      #
-#    #2  git user;                                                            #
-#    #3  git user password;                                                   #
-#    #4  git branch;                                                          #
-#    #5  vss repository;                                                      #
-#    #6  vss user;                                                            #
-#    #7  vss user password;                                                   #
-#   [#8] optional git tag.                                                    #
+#    #1  git url;                                                             #
+#    #2  git branch;                                                          #
+#    #3  vss project;                                                         #
+#    #4  vss user;                                                            #
+#    #5  vss user password;                                                   #
+#   [#6] optional git tag.                                                    #
 #                                                                             #
 # to do:                                                                      #
 #   git auth? apparently no way to do so programmatically--use ssh;           #
@@ -28,8 +26,8 @@
 #   1. clone the git branch to a temporary directory;                         #
 #   2. take a snapshot Sgit of the directory structure;                       #
 #   3. checkin modified files to vss:                                         #
-#       3.1. checkout the vss repository without overwritting local files;    #
-#       3.2. checkin the vss repository;                                      #
+#       3.1. checkout the vss project without overwritting local files;       #
+#       3.2. checkin the vss project;                                         #
 #   4. take a snapshot Svss of the directory structure;                       #
 #   5. add/delete in vss files added/removed in git:                          #
 #       5.1. from Sgit obtain the set of files Fgit;                          #
@@ -54,19 +52,51 @@ import shutil
 import subprocess
 import time
 ###############################################################################
+# helper functions---preconditions                                            #
+###############################################################################
+def error_sspath():
+    print ("Error while reading SSPATH environment variable: not set")
+    print ("Please point SSPATH to the directory of your VSS database, e.g., set SSPATH=C:\VSS-database")
+def error_args():
+    print ("Error while parsing argument list: insufficient arguments")
+def error_help():
+    print ("Usage: python {} git_url git_branch vss_proj vss_user vss_pwd [git_tag]".format(sys.argv[0]))
+    print ("Parameters:")
+    print ("       git_url: git repository's URL with user and password, e.g., https://user:passwd@bitbucket.org/owner/repo.git")
+    print ("    git_branch: git repository's branch to synchronise")
+    print ("      vss_proj: vss project to be synchronised with git repository's branch")
+    print ("      vss_user: vss username for authentication")
+    print ("       vss_pwd: vss user's password for authentication")
+    print ("       git_tag: tag to apply to the synchronised git branch [optional]")
+    print ("Example:")
+    print ("    python {} https://palves:passwd@bitbucket.org/owner/repo.git master $/Project palves passwd [1.0]".format(sys.argv[0]))
+    print ("Please ensure that:")
+    print ("    both git.exe and ss.exe are in PATH")
+    print ("    SSPATH is set to the VSS database directory---where srcsafe.ini is")
+    print ("    the vss_user does not have the project currently checked out")
+###############################################################################
+# script preconditions                                                        #
+###############################################################################
+if os.environ.get("SSPATH") is None:
+    error_sspath()
+    error_help()
+    sys.exit()
+if len(sys.argv) < 7:
+    error_args()
+    error_help()
+    sys.exit()
+###############################################################################
 # cli arguments                                                               #
 ###############################################################################
 use_git_tag = False
 git_repo    = sys.argv[1] 
-git_user    = sys.argv[2]
-git_passwd  = sys.argv[3]
-git_branch  = sys.argv[4]
-vss_repo    = sys.argv[5]
-vss_user    = sys.argv[6]
-vss_passwd  = sys.argv[7]
-if len(sys.argv) == 9:
+git_branch  = sys.argv[2]
+vss_proj    = sys.argv[3]
+vss_user    = sys.argv[4]
+vss_passwd  = sys.argv[5]
+if len(sys.argv) == 7:
     use_git_tag = True
-    git_tag     = sys.argv[8]
+    git_tag     = sys.argv[6]
 ###############################################################################
 # vss-specific environment variables                                          #
 ###############################################################################
@@ -233,9 +263,9 @@ def sync_dirs(vss_dirs):
         subprocess.call(cmd_vss_undockout.format(d), shell=True)
         subprocess.call(cmd_vss_del.format(d), shell=True)
     return dirs_to_rec
-def sync_git_vss(vss_repo, dir):
-    # set vss repository and change cwd to 'dir'
-    subprocess.call(cmd_vss_cp.format(vss_repo), shell=True)
+def sync_git_vss(vss_proj, dir):
+    # set vss project and change cwd to 'dir'
+    subprocess.call(cmd_vss_cp.format(vss_proj), shell=True)
     os.chdir(dir)
     #print (os.getcwd())
     vss_files, vss_dirs = create_vss_snap_cwd()
@@ -254,7 +284,7 @@ def error_ckout():
     # answer yes to undo the check out of files that have been modified/removed
     # in git
     cmd = cmd_vss_undockout + " " + "-I-Y"
-    subprocess.call(cmd.format(vss_repo), shell=True)
+    subprocess.call(cmd.format(vss_proj), shell=True)
 ###############################################################################
 # main                                                                        #
 ###############################################################################
@@ -265,13 +295,13 @@ print ("Creating git snapshot")
 create_git_snap(base_dir)
 os.chdir(base_dir)
 print ("Checking out from VSS")
-code = subprocess.call(cmd_vss_ckout.format(vss_repo), shell=True)
+code = subprocess.call(cmd_vss_ckout.format(vss_proj), shell=True)
 if code == err_vss:
     error_ckout()
     sys.exit()
 print ("Checking in to VSS")
-subprocess.call(cmd_vss_ckin.format(vss_repo), shell=True)
+subprocess.call(cmd_vss_ckin.format(vss_proj), shell=True)
 print ("Synchronising added/removed files in git with VSS")
-sync_git_vss(vss_repo, base_dir)
+sync_git_vss(vss_proj, base_dir)
 # remove temporary base directory
 #shutil.rmtree(base_dir, True)

@@ -1,32 +1,35 @@
 git-vss
 =======
 
-synchronise a vss database with a git branch.
+synchronise a vss project with a git branch.
 
 ###### assumptions
 * Both {ss,git}.exe are in **PATH**;
-* **%SSPATH%** exists and contains the VSS database location;
+* **%SSPATH%** exists and contains the VSS database location---where `srcsafe.ini` is;
 * Commands used to collect git snapshot produce a directory listing with one
 file/sub-directory per line;
 * The VSS user of this script does not have the VSS project checked out
 externally (used in `error_ckout`.)
 
 ###### parameters
-1. git repository;
-2. git user;
-3. git user password;
-4. git branch;
-5. vss repository;
-6. vss user;
-7. vss user password;
-8. optional git tag.
+1. git url with user and password, e.g., https://user:passwd@bitbucket.org/owner/repo.git;
+2. git branch;
+3. vss project;
+4. vss user;
+5. vss user password;
+6. optional git tag.
+
+###### example
+```
+python sync-git-vss.py https://palves:passwd@bitbucket.org/owner/repo.git master $/Project palves passwd [1.0]
+```
 
 ###### high-level description
 1. clone the git branch to a temporary directory;
 2. take a snapshot Sgit of the directory structure;
 3. checkin modified files to vss:
-  1. checkout the vss repository without overwritting local files;
-  2. checkin the vss repository;
+  1. checkout the vss project without overwritting local files;
+  2. checkin the vss project;
 4. take a snapshot Svss of the directory structure;
 5. add/delete in vss files added/removed in git:
   1. from Sgit obtain the set of files Fgit;
