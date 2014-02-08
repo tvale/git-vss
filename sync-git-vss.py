@@ -81,7 +81,7 @@ if os.environ.get("SSPATH") is None:
     error_sspath()
     error_help()
     sys.exit()
-if len(sys.argv) < 7:
+if len(sys.argv) < 6:
     error_args()
     error_help()
     sys.exit()
@@ -124,10 +124,11 @@ cmd_vss_cp        = "ss cp {}"
 cmd_vss_dir       = "ss dir -F"
 cmd_vss_get       = "ss get {}"
 cmd_vss_add       = "ss add {} -R -C- -I-"
-cmd_vss_del       = "ss delete {} -I-Y"
+cmd_vss_del       = "ss delete {} -S -I-Y"
 cmd_vss_ckin      = "ss checkin {} -R -C-"
 cmd_vss_ckout     = "ss checkout {} -R -G-"
 cmd_vss_undockout = "ss undocheckout {} -R -G-"
+cmd_vss_rename    = "ss rename {} {} -S"
 ###############################################################################
 # vss error return codes                                                      #
 ###############################################################################
@@ -240,7 +241,10 @@ def sync_files(vss_files):
             subprocess.call(cmd_vss_ckin.format(f), shell=True)
     #print (files_to_rem)
     for f in files_to_rem:
-        subprocess.call(cmd_vss_del.format(f), shell=True)
+        # rename to f_timestamp
+        f_ts = f + "_" + str(time.time())
+        subprocess.call(cmd_vss_rename.format(f, f_ts), shell=True)
+        subprocess.call(cmd_vss_del.format(f_ts), shell=True)
 def sync_dirs(vss_dirs):
     # get list of directories to add/remove
     try:
@@ -261,7 +265,10 @@ def sync_dirs(vss_dirs):
         # sources
         sync_git_vss(d, d)
         subprocess.call(cmd_vss_undockout.format(d), shell=True)
-        subprocess.call(cmd_vss_del.format(d), shell=True)
+        # rename to d_timestamp
+        d_ts = d + "_" + str(time.time())
+        subprocess.call(cmd_vss_rename.format(d, d_ts), shell=True)
+        subprocess.call(cmd_vss_del.format(d_ts), shell=True)
     return dirs_to_rec
 def sync_git_vss(vss_proj, dir):
     # set vss project and change cwd to 'dir'
