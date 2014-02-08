@@ -54,10 +54,6 @@ import shutil
 import subprocess
 import time
 ###############################################################################
-# log filename                                                                #
-###############################################################################
-log_fn = "sync_git_vss.log"
-###############################################################################
 # cli arguments                                                               #
 ###############################################################################
 use_git_tag = False
@@ -128,7 +124,7 @@ def parse_cwd(sh_cmd, parse_fun):
     # remove temporary file
     fd, fn = tempfile.mkstemp()
     try:
-        subprocess.check_call(sh_cmd, stdout=fd, stderr=log, shell=True)
+        subprocess.check_call(sh_cmd, stdout=fd, shell=True)
         os.close(fd)
         parse_fun(result, fn)
     except subprocess.CalledProcessError:
@@ -188,7 +184,7 @@ def create_vss_snap_cwd():
     # redirect list output to a temporary file, parse names into the respective
     # list and remove temporary file
     fd, fn = tempfile.mkstemp()
-    subprocess.call(cmd_vss_dir, stdout=fd, stderr=log, shell=True)
+    subprocess.call(cmd_vss_dir, stdout=fd, shell=True)
     os.close(fd)
     parse_vss_cwd(files, subdirs, fn)
     os.remove(fn)
@@ -207,14 +203,14 @@ def sync_files(vss_files):
     files_to_rem = list(set(vss_files) - set(git_files))
     #print (files_to_add)
     for f in files_to_add:
-        code = subprocess.call(cmd_vss_add.format(f), stdout=log, stderr=log, shell=True)
+        code = subprocess.call(cmd_vss_add.format(f), shell=True)
         if code == err_vss:
             # what if 'f' is checked out?
-            subprocess.call(cmd_vss_ckout.format(f), stdout=log, stderr=log, shell=True)
-            subprocess.call(cmd_vss_ckin.format(f), stdout=log, stderr=log, shell=True)
+            subprocess.call(cmd_vss_ckout.format(f), shell=True)
+            subprocess.call(cmd_vss_ckin.format(f), shell=True)
     #print (files_to_rem)
     for f in files_to_rem:
-        subprocess.call(cmd_vss_del.format(f), stdout=log, stderr=log, shell=True)
+        subprocess.call(cmd_vss_del.format(f), shell=True)
 def sync_dirs(vss_dirs):
     # get list of directories to add/remove
     try:
@@ -227,19 +223,19 @@ def sync_dirs(vss_dirs):
     dirs_to_rec = list(set(vss_dirs) & set(git_dirs))
     #print (dirs_to_add)
     for d in dirs_to_add:
-        subprocess.call(cmd_vss_add.format(d), stdout=log, stderr=log, shell=True)
+        subprocess.call(cmd_vss_add.format(d), shell=True)
     #print (dirs_to_rem)
     for d in dirs_to_rem:
         # we apply recursively because deleting a directory with files prompts
         # user input from vss regarding checkout operations from different
         # sources
         sync_git_vss(d, d)
-        subprocess.call(cmd_vss_undockout.format(d), stdout=log, stderr=log, shell=True)
-        subprocess.call(cmd_vss_del.format(d), stdout=log, stderr=log, shell=True)
+        subprocess.call(cmd_vss_undockout.format(d), shell=True)
+        subprocess.call(cmd_vss_del.format(d), shell=True)
     return dirs_to_rec
 def sync_git_vss(vss_repo, dir):
     # set vss repository and change cwd to 'dir'
-    subprocess.call(cmd_vss_cp.format(vss_repo), stdout=log, stderr=log, shell=True)
+    subprocess.call(cmd_vss_cp.format(vss_repo), shell=True)
     os.chdir(dir)
     #print (os.getcwd())
     vss_files, vss_dirs = create_vss_snap_cwd()
@@ -248,7 +244,7 @@ def sync_git_vss(vss_repo, dir):
     #print (dirs_to_rec)
     for d in git_vss_dirs:
         sync_git_vss(d, d)
-    subprocess.call(cmd_vss_cp.format(".."), stdout=log, stderr=log, shell=True)
+    subprocess.call(cmd_vss_cp.format(".."), shell=True)
     os.chdir("..")
 ###############################################################################
 # helper functions---rollback on error                                        #
@@ -258,33 +254,24 @@ def error_ckout():
     # answer yes to undo the check out of files that have been modified/removed
     # in git
     cmd = cmd_vss_undockout + " " + "-I-Y"
-    subprocess.call(cmd.format(vss_repo), stdout=log, stderr=log, shell=True)
-def print_log_info():
-    print ("View {} for details".format(log_fn))
+    subprocess.call(cmd.format(vss_repo), shell=True)
 ###############################################################################
 # main                                                                        #
 ###############################################################################
-log = open(log_fn, "a+")
-log.write(time.strftime("%c"))
-log.write("\n")
 base_dir = tempfile.mkdtemp()
 print ("Cloning {} into {}".format(git_repo, base_dir))
-subprocess.call(cmd_git_clone.format(git_repo, git_branch, base_dir), stdout=log, stderr=log, shell=True)
+subprocess.call(cmd_git_clone.format(git_repo, git_branch, base_dir), shell=True)
 print ("Creating git snapshot")
 create_git_snap(base_dir)
 os.chdir(base_dir)
 print ("Checking out from VSS")
-code = subprocess.call(cmd_vss_ckout.format(vss_repo), stdout=log, stderr=log, shell=True)
+code = subprocess.call(cmd_vss_ckout.format(vss_repo), shell=True)
 if code == err_vss:
     error_ckout()
-    print_log_info()
     sys.exit()
 print ("Checking in to VSS")
-subprocess.call(cmd_vss_ckin.format(vss_repo), stdout=log, stderr=log, shell=True)
+subprocess.call(cmd_vss_ckin.format(vss_repo), shell=True)
 print ("Synchronising added/removed files in git with VSS")
 sync_git_vss(vss_repo, base_dir)
-print_log_info()
 # remove temporary base directory
 #shutil.rmtree(base_dir, True)
-log.write("\n")
-log.close()    
