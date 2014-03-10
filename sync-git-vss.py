@@ -154,7 +154,7 @@ def parse_cwd(sh_cmd, parse_fun):
     # remove temporary file
     fd, fn = tempfile.mkstemp()
     try:
-        subprocess.check_call(sh_cmd, stdout=fd, shell=True)
+        subprocess.check_call(sh_cmd, stdout=fd, stderr=fd, shell=True)
         os.close(fd)
         parse_fun(result, fn)
     except subprocess.CalledProcessError:
