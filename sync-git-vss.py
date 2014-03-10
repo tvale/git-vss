@@ -89,14 +89,15 @@ if len(sys.argv) < 6:
 # cli arguments                                                               #
 ###############################################################################
 use_git_tag = False
-git_repo    = sys.argv[1] 
-git_branch  = sys.argv[2]
-vss_proj    = sys.argv[3]
-vss_user    = sys.argv[4]
-vss_passwd  = sys.argv[5]
-if len(sys.argv) == 7:
+base_dir    = sys.argv[1]
+git_repo    = sys.argv[2]
+git_branch  = sys.argv[3]
+vss_proj    = sys.argv[4]
+vss_user    = sys.argv[5]
+vss_passwd  = sys.argv[6]
+if len(sys.argv) == 8:
     use_git_tag = True
-    git_tag     = sys.argv[6]
+    git_tag     = sys.argv[7]
 ###############################################################################
 # vss-specific environment variables                                          #
 ###############################################################################
@@ -117,7 +118,9 @@ cmd_win_del_dir   = "rm -rf {}"
 ###############################################################################
 # git command templates                                                       #
 ###############################################################################
-cmd_git_clone = "git clone {} --branch {} --single-branch {}"
+cmd_git_clone = "git clone {} {}"
+cmd_git_ckout = "git checkout {}"
+cmd_git_pull  = "git pull origin"
 cmd_git_tag   = "git tag {}"
 cmd_git_push  = "git push --tags origin"
 ###############################################################################
@@ -345,11 +348,25 @@ def error_pathlen(path):
 	print ('Error while parsing "'+path+':" length is > '+pathlen_vss)
 	print ("Please rename to a path that does not violate the limitation.")
 ###############################################################################
+def git_clone():
+    os.makedirs(base_dir)
+    print ("Cloning {} into {}".format(git_repo, base_dir))
+    subprocess.call(cmd_git_clone.format(git_repo, base_dir), shell=True)
+    os.chdir(base_dir)
+def git_pull():
+    os.chdir(base_dir)
+    print ("Pulling latest changes from {}".format(git_repo))
+    subprocess.call(cmd_git_pull, shell=True)
+###############################################################################
 # main                                                                        #
 ###############################################################################
-base_dir = tempfile.mkdtemp()
-print ("Cloning {} into {}".format(git_repo, base_dir))
-subprocess.call(cmd_git_clone.format(git_repo, git_branch, base_dir), shell=True)
+#base_dir = tempfile.mkdtemp()
+if os.path.exists(base_dir):
+    git_pull()
+else:
+    git_clone()
+print ("Changing to remotes/origin/{} branch".format(git_branch))
+subprocess.call(cmd_git_ckout.format("remotes/origin/" + git_branch), shell=True)
 print ("Creating git snapshot")
 create_git_snap(base_dir)
 os.chdir(base_dir)
@@ -370,7 +387,7 @@ if use_git_tag == True:
     print ("Pushing git tag")
     subprocess.call(cmd_git_push, shell=True)
     os.chdir("..")
-# remove temporary base directory
-print ("Removing temporary directory {}".format(base_dir))
-subprocess.call(cmd_win_del_dir.format(base_dir), shell=True)
+# resetting to master branch
+os.chdir(base_dir)
+subprocess.call(cmd_git_ckout.format("master"), shell=True)
 print ("Done!")
