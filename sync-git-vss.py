@@ -36,6 +36,10 @@
 #       6.3. Delete from VSS each d in Dvss and not in Dgit;                  #
 #       6.4. Add to VSS each d in Dgit and not in Dvss;                       #
 #       6.5. Apply steps 4-6 to each d in Dgit and Dvss;                      #
+#                                                                             #
+# VSS limitations:                                                            #
+#    Project paths can be up to 259 characters long, including the file name. #
+#        see http://msdn.microsoft.com/en-us/library/ms181045(v=vs.80).aspx   #
 ###############################################################################
 
 ###############################################################################
@@ -128,11 +132,50 @@ cmd_vss_ckin      = "ss checkin {} -R -C-"
 cmd_vss_ckout     = "ss checkout {} -R -G-"
 cmd_vss_undockout = "ss undocheckout {} -R -G-"
 cmd_vss_rename    = "ss rename {} {} -S"
+cmd_vss_proj      = "ss project"
 ###############################################################################
 # vss error return codes                                                      #
 ###############################################################################
 err_vss = 100
 ok_vss  = 0
+pathlen_vss = 259
+###############################################################################
+# helper functions---path length                                              #
+###############################################################################
+def trunc_path(path, obj):
+	full_path = path + "/" + obj
+	len_fullpath = len(full_path)
+	len_obj = len(obj)
+	trunc = (len_fullpath + 10) - pathlen_vss
+	return len(obj) - trunc
+def check_path(path, obj):
+	full_path = path + "/" + obj
+	len_fullpath = len(full_path)
+	trunc = trunc_path(path, obj)
+	if len_fullpath > pathlen_vss or trunc < 0:
+		error_pathlen(full_path)
+		sys.exit()
+def parse_path(fn):
+    with open(fn, "rU") as f:
+        for line in f:
+            stripped = line.strip()
+            if stripped:
+                # Current project is $/...
+                # \_______19________/
+                return stripped[:19]
+def current_path():
+    result = ""
+    # redirect list output to a temporary file, parse path and
+    # remove temporary file
+    fd, fn = tempfile.mkstemp()
+    try:
+        subprocess.check_call(vss_proj, stdout=fd, stderr=fd, shell=True)
+        os.close(fd)
+        result = parse_path(fn)
+    except subprocess.CalledProcessError:
+        os.close(fd)
+    os.remove(fn)
+    return result
 ###############################################################################
 # helper functions---git snapshot                                             #
 ###############################################################################
@@ -141,12 +184,14 @@ def parse_files_cwd(files, fn):
         for line in f:
             stripped = line.strip()
             if stripped:
+                check_path(current_path(), stripped)
                 files.append(stripped)
 def parse_subdirs_cwd(subdirs, fn):
     with open(fn, "rU") as f:
         for line in f:
             stripped = line.strip()
             if stripped and stripped != ".git":
+                check_path(current_path(), stripped)
                 subdirs.append(stripped)
 def parse_cwd(sh_cmd, parse_fun):
     result = []
@@ -237,8 +282,14 @@ def sync_files(vss_files):
             subprocess.call(cmd_vss_ckout.format(f), shell=True)
             subprocess.call(cmd_vss_ckin.format(f), shell=True)
     for f in files_to_rem:
-        # rename to f_timestamp
-        f_ts = f + "_" + str(time.time())
+        # rename to ftimestamp
+        ts = str(time.time())[:10]
+        trunc = trunc_path(current_path(), f)
+        if trunc >= 0:
+            f_trunc = f[:trunc]
+            f_ts = f_trunc + ts
+        else:
+            f_ts = ts[:len(f)]
         subprocess.call(cmd_vss_rename.format(f, f_ts), shell=True)
         subprocess.call(cmd_vss_del.format(f_ts), shell=True)
 def sync_dirs(vss_dirs):
@@ -259,8 +310,14 @@ def sync_dirs(vss_dirs):
         # sources
         sync_git_vss(d, d)
         subprocess.call(cmd_vss_undockout.format(d), shell=True)
-        # rename to d_timestamp
-        d_ts = d + "_" + str(time.time())
+        # rename to dtimestamp
+        ts = str(time.time())[:10]
+        trunc = trunc_path(current_path(), d)
+        if trunc >= 0:
+            d_trunc = d[:trunc]
+            d_ts = d_trunc + ts
+        else:
+            d_ts = ts[:len(d)]
         subprocess.call(cmd_vss_rename.format(d, d_ts), shell=True)
         subprocess.call(cmd_vss_del.format(d_ts), shell=True)
     return dirs_to_rec
@@ -284,6 +341,9 @@ def error_ckout():
     # in git
     cmd = cmd_vss_undockout + " " + "-I-Y"
     subprocess.call(cmd.format(vss_proj), stdout=subprocess.DEVNULL, shell=True)
+def error_pathlen(path):
+	print ('Error while parsing "'+path+':" length is > '+pathlen_vss)
+	print ("Please rename to a path that does not violate the limitation.")
 ###############################################################################
 # main                                                                        #
 ###############################################################################
