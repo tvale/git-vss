@@ -136,7 +136,6 @@ cmd_vss_add       = 'ss add "{}" -I-'
 cmd_vss_cp        = 'ss cp "{}"'
 cmd_vss_dir       = 'ss dir -F'
 cmd_vss_get       = 'ss get "{}"'
-cmd_vss_add       = 'ss add "{}" -R -C- -I-'
 cmd_vss_del       = 'ss delete "{}" -I-Y'
 cmd_vss_ckin      = 'ss checkin "{}" -I-'
 cmd_vss_ckout     = 'ss checkout "{}" -G- -I-'
@@ -160,19 +159,17 @@ encoding = "cp860"
 ###############################################################################
 # helper functions---fatal error                                              #
 ###############################################################################
-def fatal_error(msg):
-    try:
-        subprocess.check_output(cmd_vss_undockout.format(vss_proj))
-    except subprocess.CalledProcessError as e:
-        err = vss_get_error(e)
-        print ("Error: " + err)
-    print ("Error: " + msg)
+def fatal_error(msg, subproj, filename):
+    subprocess.call(cmd_vss_proj)
+    print (os.getcwd())
+    subprocess.call(cmd_vss_undockout.format(vss_proj), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)   
+    print ("Error on " + subproj + "/" + filename + ": " + msg)
     sys.exit(1)
 ###############################################################################
 # helper functions---path length                                              #
 ###############################################################################
 def trunc_filename(subproj, filename):
-    path = subproj + "/" + filenamepath
+    path = subproj + "/" + filename
     trunc = len(path) + ts_size - pathlen_vss
     index = len(filename) - trunc
     if index < 0:
@@ -182,6 +179,11 @@ def trunc_filename(subproj, filename):
 ###############################################################################
 # helper functions---vss                                                      #
 ###############################################################################
+def vss_get_proj():
+    p = subprocess.Popen(cmd_vss_proj.split(), stdout=subprocess.PIPE)
+    out, err = p.communicate()
+    proj = out.decode(encoding).strip()[19:].replace("\r", "").replace("\n", "")
+    return proj
 def vss_get_error(e):
     return e.output.decode(encoding).strip()
 def vss_cd_root():
@@ -197,9 +199,9 @@ def vss_cd_root():
                 os.chdir(base_dir)
             except subprocess.CalledProcessError as e:
                 err = vss_get_error(e)
-                fatal_error(err)
+                fatal_error(err, vss_proj, "")
         else:
-            fatal_error(err)
+            fatal_error(err, subproj, filename)
 def vss_git_hash_set(commit):
     subprocess.call(cmd_win_git_hash.format(commit, gitcommit_file), shell=True)
     try:
@@ -213,7 +215,7 @@ def vss_git_hash_set(commit):
                 err = vss_get_error(e)
                 fatal_error(e)
         else:
-            fatal_error(err)
+            fatal_error(err, subproj, filename)
     subprocess.call(cmd_win_del_file.format(gitcommit_file))
 def vss_git_hash_get():
     try:
@@ -223,7 +225,7 @@ def vss_git_hash_get():
         if "not an existing filename" in err: # no sync file
             return None
         elif "You currently have" not in err: 
-            fatal_error(err)
+            fatal_error(err, subproj, filename)
     p = subprocess.Popen(["cat", gitcommit_file], stdout=subprocess.PIPE)
     out, err = p.communicate()
     return out.decode(encoding)
@@ -233,31 +235,44 @@ def vss_create_cd(path):
     except subprocess.CalledProcessError as e:
         err = vss_get_error(e)
         if err.endswith("already exists") == False:
-            fatal_error(err)
+            fatal_error(err, subproj, filename)
+    proj_before = vss_get_proj()
     subprocess.call(cmd_vss_cd.format(path), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    proj_after = vss_get_proj()
+    if proj_after != (proj_before + "/" + path):
+        fatal_error(proj_before + "/" + path + " != " + proj_after, path, "")
     os.chdir(path)
 def vss_create_subproj(path, dirs=[]):
     dirname = os.path.dirname(path)
     dirs.insert(0, os.path.basename(path))
     try:
         if dirname != "":
+            proj_before = vss_get_proj()
             subprocess.check_output(cmd_vss_cd.format(dirname), stderr=subprocess.STDOUT)
+            proj_after = vss_get_proj()
+            if proj_after != (proj_before + "/" + dirname):
+                fatal_error(proj_before + "/" + dirname + " != " + proj_after, path, "")
             os.chdir(dirname)
-        [vss_create_cd(x) for x in dirs]
+        for dir in dirs:
+            vss_create_cd(dir)
     except subprocess.CalledProcessError:
         vss_create_subproj(dirname, dirs)
 def vss_cd_create(subproj):
     if subproj == "":
         return
     try: # try to change to subproject
+        proj_before = vss_get_proj()
         subprocess.check_output(cmd_vss_cd.format(subproj), stderr=subprocess.STDOUT)
+        proj_after = vss_get_proj()
+        if proj_after != (proj_before + "/" + subproj):
+            fatal_error(proj_before + "/" + subproj + " != " + proj_after, subproj, "")
         os.chdir(subproj)
     except subprocess.CalledProcessError as e:
         err = vss_get_error(e)
         if err.endswith("not exist") == True: # subproject doesn't exist yet
             vss_create_subproj(subproj, [])
         else:
-            fatal_error(err)
+            fatal_error(err, subproj, filename)
 ###############################################################################
 # helper functions---git                                                      #
 ###############################################################################
@@ -320,18 +335,18 @@ def process_add(subproj, filename):
                         subprocess.check_output(cmd_vss_ckin.format(filename), stderr=subprocess.STDOUT)
                     except subprocess.CalledProcessError as e:
                         err = vss_get_error(e)
-                        fatal_error(err)
-                    else:
-                        fatal_error(err)
+                        fatal_error(err, subproj, filename)
+                else:
+                    fatal_error(err, subproj, filename)
             try: # file checked out, try to checkin
                 subprocess.check_output(cmd_vss_ckin.format(filename), stderr=subprocess.STDOUT)
             except subprocess.CalledProcessError as e:
                 err = vss_get_error(e)
-                fatal_error(err)
+                fatal_error(err, subproj, filename)
         elif err.endswith("not found") == True: # file does not exist in git
             return
         else:
-            fatal_error(err)
+            fatal_error(err, subproj, filename)
 def process_modify(subproj, filename):
     path = subproj + "/" + filename
     try:
@@ -342,7 +357,7 @@ def process_modify(subproj, filename):
         subprocess.check_output(cmd_vss_ckout.format(filename), stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as e:
         err = vss_get_error(e)
-        if "not an existing" in err: # file doesn't exist in VSS
+        if ("not an existing" in err) or ("has been deleted" in err): # file doesn't exist in VSS
             try: # try to add file
                 subprocess.check_output(cmd_vss_add.format(filename), stderr=subprocess.STDOUT)
                 return
@@ -351,21 +366,21 @@ def process_modify(subproj, filename):
                 if "not found" in err: # file doesn't exist in git
                     return
                 else:
-                    fatal_error(err)
+                    fatal_error(err, subproj, filename)
         elif "You currently have" in err: # already checked out by me
             try: # try to checkin file
                 subprocess.check_output(cmd_vss_ckin.format(filename), stderr=subprocess.STDOUT)
                 return
             except subprocess.CalledProcessError as e:
                 err = vss_get_error(e)
-                fatal_error(err)
+                fatal_error(err, subproj, filename)
         else:
-            fatal_error(err)
+            fatal_error(err, subproj, filename)
     try: # file checked out, try to checkin file
         subprocess.check_output(cmd_vss_ckin.format(filename), stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as e:
         err = vss_get_error(e)
-        fatal_error(err)
+        fatal_error(err, subproj, filename)
 def process_delete(subproj, filename):
     path = subproj + "/" + filename
     try:
@@ -376,44 +391,45 @@ def process_delete(subproj, filename):
         subprocess.check_output(cmd_vss_ckout.format(filename), stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as e:
         err = vss_get_error(e)
-        if "not an existing" in err: # file doesn't exist
+        if "not an existing" in err or "has been deleted" in err: # file doesn't exist
             return
         elif "You currently have" not in err:
-            fatal_error(err)
+            fatal_error(err, subproj, filename)
     try: # file checked out, try to rename
         ts = str(time.time())[:ts_size]
         new_filename = trunc_filename(subproj, filename) + ts
         subprocess.check_output(cmd_vss_rename.format(filename, new_filename), stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as e:
         err = vss_get_error(e)
-        fatal_error(err)
+        fatal_error(err, subproj, filename)
     try: # file renamed, try to delete
         subprocess.check_output(cmd_vss_del.format(new_filename), stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as e:
         err = vss_get_error(e)
         if "has been deleted" not in err:
-            fatal_error(err)
+            fatal_error(err, subproj, filename)
     # TODO if subproj becomes empty, remove it. apply recursively.
-def process_change(change):
+def process_change(change, i, t):
     vss_cd_root()
     path = change[0]
     op   = change[1]
     subproj = os.path.dirname(path)
     filename = os.path.basename(path)
     if op == "A":
+        print (str(i) + "/" + str(t) + " Adding " + path)
         process_add(subproj, filename)
     elif op == "M":
+        print (str(i) + "/" + str(t) + " Modifying " + path)
         process_modify(subproj, filename)
     elif op == "D":
+        print (str(i) + "/" + str(t) + " Deleting " + path)
         process_delete(subproj, filename)
 def process_changes(changes):
     i = 1
     t = len(changes)
     for change in changes:
-        print ("Processing change " + str(i) + "/" + str(t), end="\r")
-        process_change(change)
+        process_change(change, i, t)
         i = i + 1
-    print ("")
     print ("All changes processed")
 ###############################################################################
 # main                                                                        #
