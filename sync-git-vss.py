@@ -245,22 +245,14 @@ def vss_create_cd(path):
         err = vss_get_error(e)
         if err.endswith("already exists") == False:
             fatal_error(err, subproj, filename)
-    proj_before = vss_get_proj()
     subprocess.call(cmd_vss_cd.format(path), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    proj_after = vss_get_proj()
-    if proj_after != (proj_before + "/" + path):
-        fatal_error(proj_before + "/" + path + " != " + proj_after, path, "")
     os.chdir(path)
 def vss_create_subproj(path, dirs=[]):
     dirname = os.path.dirname(path)
     dirs.insert(0, os.path.basename(path))
     try:
         if dirname != "":
-            proj_before = vss_get_proj()
             subprocess.check_output(cmd_vss_cd.format(dirname), stderr=subprocess.STDOUT)
-            proj_after = vss_get_proj()
-            if proj_after != (proj_before + "/" + dirname):
-                fatal_error(proj_before + "/" + dirname + " != " + proj_after, path, "")
             os.chdir(dirname)
         for dir in dirs:
             vss_create_cd(dir)
@@ -278,12 +270,8 @@ def vss_cd_create(subproj):
     if subproj == "":
         return
     try: # try to change to subproject
-        proj_before = vss_get_proj()
         for dir in subproj.split("/"):
             vss_rename_cd(dir)
-        proj_after = vss_get_proj()
-        if proj_after != (proj_before + "/" + subproj):
-            fatal_error(proj_before + "/" + subproj + " != " + proj_after, subproj, "")
         os.chdir(subproj)
     except subprocess.CalledProcessError as e:
         err = vss_get_error(e)
