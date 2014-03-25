@@ -1,3 +1,4 @@
+﻿# -*- coding: utf-8 -*-
 ###############################################################################
 # A Python script to synchronise a VSS project with a git branch.             #
 # Makes use of Windows-specific commands.                                     #
@@ -126,7 +127,7 @@ cmd_git_fetch = 'git fetch origin'
 cmd_git_tag   = 'git tag {}'
 cmd_git_push  = 'git push --tags origin'
 cmd_git_hash  = 'git --no-pager log --format=format:%H -1'
-cmd_git_log   = 'git --no-pager log --oneline --name-status --format=format: {}'
+cmd_git_log   = 'git --no-pager log --oneline --name-only --format=format: {}'
 ###############################################################################
 # vss command templates                                                       #
 ###############################################################################
@@ -155,14 +156,18 @@ pathlen_vss = 259
 ###############################################################################
 ts_size = 10
 gitcommit_file = ".gitcommit"
-encoding = "cp860"
+vss_encoding = "cp860"
+git_encoding = "utf8"
+cmd_encoding = "65001"
 ###############################################################################
 # helper functions---fatal error                                              #
 ###############################################################################
 def fatal_error(msg, subproj, filename):
     subprocess.call(cmd_vss_proj)
     print (os.getcwd())
-    subprocess.call(cmd_vss_undockout.format(vss_proj), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)   
+    subprocess.call(cmd_vss_undockout.format(vss_proj), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    os.chdir(base_dir)
+    os.remove(gitcommit_file)
     print ("Error on " + subproj + "/" + filename + ": " + msg)
     sys.exit(1)
 ###############################################################################
@@ -182,10 +187,10 @@ def trunc_filename(subproj, filename):
 def vss_get_proj():
     p = subprocess.Popen(cmd_vss_proj.split(), stdout=subprocess.PIPE)
     out, err = p.communicate()
-    proj = out.decode(encoding).strip()[19:].replace("\r", "").replace("\n", "")
+    proj = out.decode(git_encoding).strip()[19:].replace("\r", "").replace("\n", "")
     return proj
 def vss_get_error(e):
-    return e.output.decode(encoding).strip()
+    return e.output.decode(vss_encoding).strip()
 def vss_cd_root():
     try:
         subprocess.check_output(cmd_vss_cd.format(vss_proj), stderr=subprocess.STDOUT)
@@ -201,7 +206,7 @@ def vss_cd_root():
                 err = vss_get_error(e)
                 fatal_error(err, vss_proj, "")
         else:
-            fatal_error(err, subproj, filename)
+            fatal_error(err, vss_proj, "")
 def vss_git_hash_set(commit):
     subprocess.call(cmd_win_git_hash.format(commit, gitcommit_file), shell=True)
     try:
@@ -228,7 +233,7 @@ def vss_git_hash_get():
             fatal_error(err, subproj, filename)
     p = subprocess.Popen(["cat", gitcommit_file], stdout=subprocess.PIPE)
     out, err = p.communicate()
-    return out.decode(encoding)
+    return out.decode(git_encoding)
 def vss_create_cd(path):
     try:
         subprocess.check_output(cmd_vss_create.format(path), stderr=subprocess.STDOUT)
@@ -273,13 +278,67 @@ def vss_cd_create(subproj):
             vss_create_subproj(subproj, [])
         else:
             fatal_error(err, subproj, filename)
+def vss_add_or_modify(subproj, filename):
+    path = subproj + "/" + filename
+    vss_cd_create(subproj)
+    try: # add
+        subprocess.check_output(cmd_vss_add.format(filename), stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as e:
+        err = vss_get_error(e)
+        if err.endswith("already exists"): # file already exists
+            try: # checkout
+                subprocess.check_output(cmd_vss_ckout.format(filename), stderr=subprocess.STDOUT)
+            except subprocess.CalledProcessError as e:
+                err = vss_get_error(e)
+                if "You currently have" in err: # already checked out by me, checkin
+                    try:
+                        subprocess.check_output(cmd_vss_ckin.format(filename), stderr=subprocess.STDOUT)
+                    except subprocess.CalledProcessError as e: # could not checkin, something went wrong
+                        err = vss_get_error(e)
+                        fatal_error(err, subproj, filename)
+                else: # could not checkout, something went wrong
+                    fatal_error(err, subproj, filename)
+            try: # file checked out, checkin
+                subprocess.check_output(cmd_vss_ckin.format(filename), stderr=subprocess.STDOUT)
+            except subprocess.CalledProcessError as e: # could not checkin, something went wrong
+                err = vss_get_error(e)
+                fatal_error(err, subproj, filename)
+        else: # file does not exist but add failed, something went wrong
+            fatal_error(err, subproj, filename)
+def vss_delete(subproj, filename):
+    path = subproj + "/" + filename
+    try: # change vss project
+        subprocess.check_output(cmd_vss_cd.format(subproj), stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as e: # if changing project fails, nothing to do---project does not exist?
+        return
+    try: # checkout
+        subprocess.check_output(cmd_vss_ckout.format(filename), stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as e:
+        err = vss_get_error(e)
+        if "not an existing" in err or "has been deleted" in err: # file doesn't exist, nothing to do
+            return
+        elif "You currently have" not in err: # unless we already have the file checked out, something went wrong
+            fatal_error(err, subproj, filename)
+    try: # rename
+        ts = str(time.time())[:ts_size]
+        new_filename = trunc_filename(subproj, filename) + ts
+        subprocess.check_output(cmd_vss_rename.format(filename, new_filename), stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as e: # could not rename, something went wrong
+        err = vss_get_error(e)
+        fatal_error(err, subproj, filename)
+    try: # delete rename file
+        subprocess.check_output(cmd_vss_del.format(new_filename), stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as e:
+        err = vss_get_error(e)
+        if "has been deleted" not in err: # unless the file has already been deleted, something went wrong
+            fatal_error(err, subproj, filename)
 ###############################################################################
 # helper functions---git                                                      #
 ###############################################################################
 def git_hash():
     p = subprocess.Popen(cmd_git_hash.split(), stdout=subprocess.PIPE)
     out, err = p.communicate()
-    return out.decode(encoding) # hash
+    return out.decode(git_encoding) # hash
 def git_changes(since=None):
     if since is not None:
         commit_range = "HEAD..." + since
@@ -287,14 +346,10 @@ def git_changes(since=None):
         commit_range = ""
     proc = subprocess.Popen(cmd_git_log.format(commit_range).split(), stdout=subprocess.PIPE)
     out, err = proc.communicate()
-    changes = out.decode(encoding).splitlines()
+    changes = out.decode(git_encoding).splitlines()
     def not_empty(str):
         return str != ""
-    changes = [x for x in changes if not_empty(x)]
-    def path_op(str):
-        return str[2:], str[:1]
-    changes = [path_op(x) for x in changes]
-    #changes.reverse() # replay all
+    changes = [line for line in changes if not_empty(line)]
     s = set()
     def unique(str, seen):
         if str in seen:
@@ -302,8 +357,8 @@ def git_changes(since=None):
         else:
             seen.add(str)
             return True
-    changes = [x for x in changes if unique(x[0], s)]
-    return changes # [(path, op)] : op in {A,M,D}
+    changes = [path for path in changes if unique(path, s)]
+    return changes # list of paths
 def git_clone():
     os.makedirs(base_dir)
     print ("Cloning {} into {}".format(git_repo, base_dir))
@@ -315,115 +370,17 @@ def git_fetch():
 ###############################################################################
 # helper functions---sync                                                     #
 ###############################################################################
-def process_add(subproj, filename):
-    path = subproj + "/" + filename
-    try:
-        vss_cd_create(subproj)
-    except FileNotFoundError:
-        return
-    try: # try to add file
-        subprocess.check_output(cmd_vss_add.format(filename), stderr=subprocess.STDOUT)
-    except subprocess.CalledProcessError as e:
-        err = vss_get_error(e)
-        if err.endswith("already exists") == True: # file already exists
-            try: # try to check out file
-                subprocess.check_output(cmd_vss_ckout.format(filename), stderr=subprocess.STDOUT)
-            except subprocess.CalledProcessError as e:
-                err = vss_get_error(e)
-                if "You currently have" in err: # already checked out by me
-                    try: # try to checkin file
-                        subprocess.check_output(cmd_vss_ckin.format(filename), stderr=subprocess.STDOUT)
-                    except subprocess.CalledProcessError as e:
-                        err = vss_get_error(e)
-                        fatal_error(err, subproj, filename)
-                else:
-                    fatal_error(err, subproj, filename)
-            try: # file checked out, try to checkin
-                subprocess.check_output(cmd_vss_ckin.format(filename), stderr=subprocess.STDOUT)
-            except subprocess.CalledProcessError as e:
-                err = vss_get_error(e)
-                fatal_error(err, subproj, filename)
-        elif err.endswith("not found") == True: # file does not exist in git
-            return
-        else:
-            fatal_error(err, subproj, filename)
-def process_modify(subproj, filename):
-    path = subproj + "/" + filename
-    try:
-        vss_cd_create(subproj)
-    except FileNotFoundError:
-        return
-    try: # try to check out file
-        subprocess.check_output(cmd_vss_ckout.format(filename), stderr=subprocess.STDOUT)
-    except subprocess.CalledProcessError as e:
-        err = vss_get_error(e)
-        if ("not an existing" in err) or ("has been deleted" in err): # file doesn't exist in VSS
-            try: # try to add file
-                subprocess.check_output(cmd_vss_add.format(filename), stderr=subprocess.STDOUT)
-                return
-            except subprocess.CalledProcessError as e:
-                err = vss_get_error(e)
-                if "not found" in err: # file doesn't exist in git
-                    return
-                else:
-                    fatal_error(err, subproj, filename)
-        elif "You currently have" in err: # already checked out by me
-            try: # try to checkin file
-                subprocess.check_output(cmd_vss_ckin.format(filename), stderr=subprocess.STDOUT)
-                return
-            except subprocess.CalledProcessError as e:
-                err = vss_get_error(e)
-                fatal_error(err, subproj, filename)
-        else:
-            fatal_error(err, subproj, filename)
-    try: # file checked out, try to checkin file
-        subprocess.check_output(cmd_vss_ckin.format(filename), stderr=subprocess.STDOUT)
-    except subprocess.CalledProcessError as e:
-        err = vss_get_error(e)
-        fatal_error(err, subproj, filename)
-def process_delete(subproj, filename):
-    path = subproj + "/" + filename
-    try:
-        subprocess.check_output(cmd_vss_cd.format(subproj), stderr=subprocess.STDOUT)
-    except subprocess.CalledProcessError as e:
-        return
-    try: # try to check out file
-        subprocess.check_output(cmd_vss_ckout.format(filename), stderr=subprocess.STDOUT)
-    except subprocess.CalledProcessError as e:
-        err = vss_get_error(e)
-        if "not an existing" in err or "has been deleted" in err: # file doesn't exist
-            return
-        elif "You currently have" not in err:
-            fatal_error(err, subproj, filename)
-    try: # file checked out, try to rename
-        ts = str(time.time())[:ts_size]
-        new_filename = trunc_filename(subproj, filename) + ts
-        subprocess.check_output(cmd_vss_rename.format(filename, new_filename), stderr=subprocess.STDOUT)
-    except subprocess.CalledProcessError as e:
-        err = vss_get_error(e)
-        fatal_error(err, subproj, filename)
-    try: # file renamed, try to delete
-        subprocess.check_output(cmd_vss_del.format(new_filename), stderr=subprocess.STDOUT)
-    except subprocess.CalledProcessError as e:
-        err = vss_get_error(e)
-        if "has been deleted" not in err:
-            fatal_error(err, subproj, filename)
-    # TODO if subproj becomes empty, remove it. apply recursively.
-def process_change(change, i, t):
+def process_change(path, i, t):
     vss_cd_root()
-    path = change[0]
-    op   = change[1]
     subproj = os.path.dirname(path)
     filename = os.path.basename(path)
-    if op == "A":
-        print (str(i) + "/" + str(t) + " Adding " + path)
-        process_add(subproj, filename)
-    elif op == "M":
-        print (str(i) + "/" + str(t) + " Modifying " + path)
-        process_modify(subproj, filename)
-    elif op == "D":
+    file_exists_in_git = os.path.isfile(path)
+    if file_exists_in_git:
+        print (str(i) + "/" + str(t) + " Adding/modifying " + path)
+        vss_add_or_modify(subproj, filename)
+    else:
         print (str(i) + "/" + str(t) + " Deleting " + path)
-        process_delete(subproj, filename)
+        vss_delete(subproj, filename)
 def process_changes(changes):
     i = 1
     t = len(changes)
@@ -435,7 +392,7 @@ def process_changes(changes):
 # main                                                                        #
 ###############################################################################
 # setup windows cmd code point (fixes encoding errors)
-subprocess.call("chcp 860", stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=True)
+subprocess.call("chcp {}".format(cmd_encoding), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=True)
 # setup git repository
 if os.path.exists(base_dir):
     git_fetch()
