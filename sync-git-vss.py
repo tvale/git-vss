@@ -421,6 +421,4 @@ if use_git_tag == True:
     subprocess.call(cmd_git_tag.format(git_tag))
     print ("Pushing git tag")
     subprocess.call(cmd_git_push)
-# resetting to master branch
-subprocess.call(cmd_git_ckout.format("master"), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 print ("Done!")
