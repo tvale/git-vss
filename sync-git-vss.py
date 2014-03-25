@@ -135,7 +135,7 @@ cmd_vss_cd        = 'ss cd "{}"'
 cmd_vss_create    = 'ss create "{}" -I-'
 cmd_vss_add       = 'ss add "{}" -I-'
 cmd_vss_cp        = 'ss cp "{}"'
-cmd_vss_dir       = 'ss dir -F'
+cmd_vss_dir       = 'ss dir'
 cmd_vss_get       = 'ss get "{}"'
 cmd_vss_del       = 'ss delete "{}" -I-Y'
 cmd_vss_ckin      = 'ss checkin "{}" -I-'
@@ -167,9 +167,14 @@ def fatal_error(msg, subproj, filename):
     print (os.getcwd())
     subprocess.call(cmd_vss_undockout.format(vss_proj), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     os.chdir(base_dir)
-    os.remove(gitcommit_file)
+    try:
+        os.remove(gitcommit_file)
+    except FileNotFoundError:
+        pass # whatever
     print ("Error on " + subproj + "/" + filename + ": " + msg)
     sys.exit(1)
+def warn(msg, subproj):
+    print ("Warning on " + subproj + ": " + msg)
 ###############################################################################
 # helper functions---path length                                              #
 ###############################################################################
@@ -221,7 +226,6 @@ def vss_git_hash_set(commit):
                 fatal_error(e)
         else:
             fatal_error(err, subproj, filename)
-    subprocess.call(cmd_win_del_file.format(gitcommit_file))
 def vss_git_hash_get():
     try:
         subprocess.check_output(cmd_vss_git_ckout.format(gitcommit_file), stderr=subprocess.STDOUT)
@@ -305,6 +309,34 @@ def vss_add_or_modify(subproj, filename):
                 fatal_error(err, subproj, filename)
         else: # file does not exist but add failed, something went wrong
             fatal_error(err, subproj, filename)
+def vss_delete_empty_subproj(subproj):
+    if subproj == "":
+        return
+    # get output of ss dir
+    p = subprocess.Popen(cmd_vss_dir.split(), stdout=subprocess.PIPE)
+    out, err = p.communicate()
+    vss_dir_empty = "No items found" in out.decode(vss_encoding).strip()
+    if vss_dir_empty:
+        # rename and delete subproject
+        # change to vss subproject 'vss_proj'/'path'
+        path = os.path.dirname(subproj)
+        filename = os.path.basename(subproj)
+        try: # rename
+            ts = str(time.time())[:ts_size]
+            new_filename = trunc_filename(path, filename) + ts
+            old_path = vss_proj + "/" + path + "/" + filename
+            renamed_path = vss_proj + "/" + path + "/" + new_filename
+            subprocess.check_output(cmd_vss_rename.format(old_path, renamed_path), stderr=subprocess.STDOUT)
+            subprocess.check_output(cmd_vss_del.format(renamed_path), stderr=subprocess.STDOUT)
+        except subprocess.CalledProcessError as e: # could not rename, something went wrong
+            err = vss_get_error(e)
+            fatal_error(err, subproj, filename)
+        try:
+            subprocess.check_output(cmd_vss_cp.format(vss_proj + "/" + path), stderr=subprocess.STDOUT)
+        except subprocess.CalledProcessError as e:
+            err = vss_get_error(e)
+            fatal_error(err, subproj, "")
+        vss_delete_empty_subproj(path)
 def vss_delete(subproj, filename):
     path = subproj + "/" + filename
     try: # change vss project
@@ -332,6 +364,9 @@ def vss_delete(subproj, filename):
         err = vss_get_error(e)
         if "has been deleted" not in err: # unless the file has already been deleted, something went wrong
             fatal_error(err, subproj, filename)
+    dir_exists_in_git = os.path.isdir(subproj)
+    if not dir_exists_in_git:
+        vss_delete_empty_subproj(subproj)
 ###############################################################################
 # helper functions---git                                                      #
 ###############################################################################
@@ -381,6 +416,7 @@ def process_change(path, i, t):
     else:
         print (str(i) + "/" + str(t) + " Deleting " + path)
         vss_delete(subproj, filename)
+        dir_exists_in_git = os.path.isdir(subproj)
 def process_changes(changes):
     i = 1
     t = len(changes)
