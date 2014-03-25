@@ -234,7 +234,7 @@ def vss_git_hash_get():
         if "not an existing filename" in err: # no sync file
             return None
         elif "You currently have" not in err: 
-            fatal_error(err, subproj, filename)
+            fatal_error(err, "", "")
     p = subprocess.Popen(["cat", gitcommit_file], stdout=subprocess.PIPE)
     out, err = p.communicate()
     return out.decode(git_encoding)
@@ -266,12 +266,21 @@ def vss_create_subproj(path, dirs=[]):
             vss_create_cd(dir)
     except subprocess.CalledProcessError:
         vss_create_subproj(dirname, dirs)
+def vss_rename_cd(subproj):
+    try:
+        subprocess.check_output(cmd_vss_rename.format(subproj, subproj), stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as e:
+        err = vss_get_error(e)
+        if "that name already exists" not in err:
+            raise e
+    subprocess.check_output(cmd_vss_cd.format(subproj), stderr=subprocess.STDOUT)
 def vss_cd_create(subproj):
     if subproj == "":
         return
     try: # try to change to subproject
         proj_before = vss_get_proj()
-        subprocess.check_output(cmd_vss_cd.format(subproj), stderr=subprocess.STDOUT)
+        for dir in subproj.split("/"):
+            vss_rename_cd(dir)
         proj_after = vss_get_proj()
         if proj_after != (proj_before + "/" + subproj):
             fatal_error(proj_before + "/" + subproj + " != " + proj_after, subproj, "")
@@ -279,6 +288,7 @@ def vss_cd_create(subproj):
     except subprocess.CalledProcessError as e:
         err = vss_get_error(e)
         if err.endswith("not exist") == True: # subproject doesn't exist yet
+            vss_cd_root()
             vss_create_subproj(subproj, [])
         else:
             fatal_error(err, subproj, filename)
@@ -309,6 +319,12 @@ def vss_add_or_modify(subproj, filename):
                 fatal_error(err, subproj, filename)
         else: # file does not exist but add failed, something went wrong
             fatal_error(err, subproj, filename)
+        try: # rename
+            subprocess.check_output(cmd_vss_rename.format(filename, filename), stderr=subprocess.STDOUT)
+        except subprocess.CalledProcessError as e:
+            err = vss_get_error(e)
+            if "that name already exists" not in err:
+                fatal_error(err)
 def vss_delete_empty_subproj(subproj):
     if subproj == "":
         return
@@ -387,10 +403,10 @@ def git_changes(since=None):
     changes = [line for line in changes if not_empty(line)]
     s = set()
     def unique(str, seen):
-        if str in seen:
+        if str.lower() in seen:
             return False
         else:
-            seen.add(str)
+            seen.add(str.lower())
             return True
     changes = [path for path in changes if unique(path, s)]
     return changes # list of paths
